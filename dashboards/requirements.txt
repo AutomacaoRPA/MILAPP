@@ -1,0 +1,24 @@
+# Streamlit e dependências principais
+streamlit==1.28.1
+pandas==2.1.4
+numpy==1.25.2
+
+# Gráficos e visualização
+plotly==5.17.0
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Requisições HTTP
+requests==2.31.0
+httpx==0.25.2
+
+# Processamento de dados
+scikit-learn==1.3.2
+scipy==1.11.4
+
+# Utilitários
+python-dotenv==1.0.0
+pydantic==2.5.0
+
+# Cache e performance
+streamlit-cache-data==0.1.0
