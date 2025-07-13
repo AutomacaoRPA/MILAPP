@@ -1,0 +1,52 @@
+# FastAPI e dependências web
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+redis==5.0.1
+
+# Supabase
+supabase==2.0.2
+
+# IA e Machine Learning
+openai==1.3.7
+langchain==0.0.350
+langchain-openai==0.0.2
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Processamento de arquivos
+PyPDF2==3.0.1
+pandas==2.1.4
+openpyxl==3.1.2
+python-docx==1.1.0
+Pillow==10.1.0
+pytesseract==0.3.10
+opencv-python==4.8.1.78
+numpy==1.25.2
+
+# Azure
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+
+# Notificações
+requests==2.31.0
+aiohttp==3.9.1
+
+# Utilitários
+python-dotenv==1.0.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Desenvolvimento
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
