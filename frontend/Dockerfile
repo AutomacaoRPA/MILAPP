@@ -1,36 +1,39 @@
 # Dockerfile para o Frontend do MILAPP
-FROM node:18-alpine
+# Multi-stage build para otimização
 
-# Define variáveis de ambiente
-ENV NODE_ENV=development
-ENV CI=true
+# Stage 1: Build
+FROM node:18-alpine AS builder
 
-# Define diretório de trabalho
+# Definir diretório de trabalho
 WORKDIR /app
 
-# Copia arquivos de dependências
+# Copiar package.json e package-lock.json
 COPY package*.json ./
 
-# Instala dependências
-RUN npm ci --only=production && npm cache clean --force
+# Instalar dependências
+RUN npm ci --only=production
 
-# Copia código da aplicação
+# Copiar código fonte
 COPY . .
 
-# Cria usuário não-root
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+# Build da aplicação
+RUN npm run build
 
-# Muda permissões
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+# Stage 2: Production
+FROM nginx:alpine
 
-# Expõe porta
-EXPOSE 3000
+# Copiar configuração do nginx
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Copiar build da aplicação
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expor porta 80
+EXPOSE 80
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost/ || exit 1
 
-# Comando para executar a aplicação
-CMD ["npm", "start"]
+# Comando para iniciar nginx
+CMD ["nginx", "-g", "daemon off;"] 

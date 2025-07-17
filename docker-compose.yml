@@ -1,150 +1,119 @@
 version: '3.8'
 
 services:
-  # Backend FastAPI
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://milapp:milapp123@postgres:5432/milapp
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - AZURE_TENANT_ID=${AZURE_TENANT_ID}
       - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
       - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
-      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
-      - WHATSAPP_API_KEY=${WHATSAPP_API_KEY}
       - N8N_BASE_URL=${N8N_BASE_URL}
       - N8N_API_KEY=${N8N_API_KEY}
-      - POWERBI_WORKSPACE_ID=${POWERBI_WORKSPACE_ID}
-      - POWERBI_CLIENT_ID=${POWERBI_CLIENT_ID}
-      - POWERBI_CLIENT_SECRET=${POWERBI_CLIENT_SECRET}
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
-      - DEBUG=true
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_SECURE=false
+      - PROMETHEUS_URL=${PROMETHEUS_URL}
+      - GRAFANA_URL=${GRAFANA_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - DEBUG=${DEBUG}
+    depends_on:
+      - redis
+      - minio
     volumes:
       - ./backend:/app
-      - ./uploads:/app/uploads
-    depends_on:
-      - postgres
-      - redis
-    networks:
-      - milapp-network
+      - milapp_files:/app/uploads
     restart: unless-stopped
 
-  # Frontend React
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_WS_URL=ws://localhost:8000
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - "3000:80"
     depends_on:
       - backend
-    networks:
-      - milapp-network
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf
     restart: unless-stopped
 
-  # Dashboards Streamlit
-  dashboards:
-    build:
-      context: ./dashboards
-      dockerfile: Dockerfile
+  dashboard:
+    build: ./dashboards
     ports:
       - "8501:8501"
     environment:
-      - DATABASE_URL=postgresql://milapp:milapp123@postgres:5432/milapp
       - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-    volumes:
-      - ./dashboards:/app
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
     depends_on:
-      - postgres
-    networks:
-      - milapp-network
+      - backend
     restart: unless-stopped
 
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=milapp
-      - POSTGRES_USER=milapp
-      - POSTGRES_PASSWORD=milapp123
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - milapp-network
-    restart: unless-stopped
-
-  # Redis Cache
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - milapp-network
     restart: unless-stopped
 
-  # n8n (Opcional - para orquestração externa)
-  n8n:
-    image: n8nio/n8n:latest
+  minio:
+    image: minio/minio:latest
     ports:
-      - "5678:5678"
+      - "9000:9000"
+      - "9001:9001"
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin
-      - N8N_BASIC_AUTH_PASSWORD=admin123
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678/
-      - GENERIC_TIMEZONE=America/Sao_Paulo
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
     volumes:
-      - n8n_data:/home/node/.n8n
-    networks:
-      - milapp-network
+      - minio_data:/data
+    command: server /data --console-address ":9001"
     restart: unless-stopped
-    profiles:
-      - external
 
-  # Nginx (Proxy reverso)
-  nginx:
-    image: nginx:alpine
+  prometheus:
+    image: prom/prometheus:latest
     ports:
-      - "80:80"
-      - "443:443"
+      - "9090:9090"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - backend
-      - frontend
-      - dashboards
-    networks:
-      - milapp-network
+      - ./devops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./devops/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./devops/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     restart: unless-stopped
 
 volumes:
-  postgres_data:
   redis_data:
-  n8n_data:
-
-networks:
-  milapp-network:
-    driver: bridge
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  milapp_files: 

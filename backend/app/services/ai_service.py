@@ -1,438 +1,417 @@
 """
-Serviço de IA do MILAPP para processamento multimodal
+Serviço de IA do MILAPP
 """
-import os
-import time
+
+import asyncio
 import json
-from typing import Dict, List, Any, Optional
-from pathlib import Path
-import logging
+import base64
+from typing import List, Dict, Optional, Any
+from datetime import datetime
+import structlog
 
-# LangChain imports
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
-from langchain.prompts import ChatPromptTemplate
-from langchain.output_parsers import PydanticOutputParser
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from app.core.config import settings
 
-# OpenAI imports
-import openai
-from openai import OpenAI
-
-# Processamento de arquivos
-import PyPDF2
-import pandas as pd
-from PIL import Image
-import pytesseract
-import cv2
-import numpy as np
-
-# BPMN processing
-import xml.etree.ElementTree as ET
-
-from ..core.config import settings
-
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class AIService:
-    """Serviço principal de IA para processamento multimodal"""
+    """Serviço de IA para processamento multimodal"""
     
     def __init__(self):
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        self.llm = ChatOpenAI(
-            model="gpt-4-turbo-preview",
-            temperature=0.1,
-            max_tokens=4000
-        )
-        
-        # Configurações
-        self.max_file_size = 10 * 1024 * 1024  # 10MB
-        self.supported_formats = {
-            'text': ['.txt', '.md'],
-            'image': ['.jpg', '.jpeg', '.png', '.gif', '.bmp'],
-            'pdf': ['.pdf'],
-            'audio': ['.mp3', '.wav', '.m4a'],
-            'bpmn': ['.bpmn', '.xml'],
-            'excel': ['.xlsx', '.xls'],
-            'word': ['.docx', '.doc']
-        }
+        self.openai_client = None
+        self.langchain_llm = None
+        self.whisper_model = None
+        self.initialized = False
     
-    def process_message(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Processa uma mensagem multimodal"""
-        start_time = time.time()
-        
+    @classmethod
+    async def initialize(cls):
+        """Inicializar serviço de IA"""
         try:
-            message_type = message_data.get('type', 'text')
-            content = message_data.get('content', '')
-            file_path = message_data.get('file_path')
+            import openai
+            from langchain_openai import ChatOpenAI
+            from langchain.schema import HumanMessage, SystemMessage
             
-            # Processamento baseado no tipo
-            if message_type == 'text':
-                analysis = self._process_text(content)
-            elif message_type == 'image':
-                analysis = self._process_image(file_path)
-            elif message_type == 'pdf':
-                analysis = self._process_pdf(file_path)
-            elif message_type == 'audio':
-                analysis = self._process_audio(file_path)
-            elif message_type == 'bpmn':
-                analysis = self._process_bpmn(file_path)
-            elif message_type in ['excel', 'word']:
-                analysis = self._process_document(file_path, message_type)
-            else:
-                analysis = {"error": f"Tipo de mensagem não suportado: {message_type}"}
+            # Configurar cliente OpenAI
+            openai.api_key = settings.OPENAI_API_KEY
+            cls.openai_client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
             
-            processing_time = int((time.time() - start_time) * 1000)
+            # Configurar LangChain
+            cls.langchain_llm = ChatOpenAI(
+                model_name=settings.AI_MODEL_NAME,
+                temperature=settings.AI_TEMPERATURE,
+                max_tokens=settings.AI_MAX_TOKENS
+            )
             
-            return {
-                "ai_analysis": analysis,
-                "processing_time": processing_time,
-                "tokens_used": analysis.get("tokens_used", 0),
-                "is_processed": True,
-                "error_message": None
-            }
+            cls.initialized = True
+            logger.info("AI Service initialized successfully")
             
         except Exception as e:
-            logger.error(f"Erro ao processar mensagem: {str(e)}")
-            return {
-                "ai_analysis": {"error": str(e)},
-                "processing_time": int((time.time() - start_time) * 1000),
-                "tokens_used": 0,
-                "is_processed": False,
-                "error_message": str(e)
-            }
+            logger.error("AI Service initialization failed", error=str(e))
+            cls.initialized = False
     
-    def _process_text(self, text: str) -> Dict[str, Any]:
-        """Processa texto e extrai requisitos"""
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """Você é um especialista em análise de requisitos de automação RPA.
-            Analise o texto fornecido e extraia:
-            1. Objetivos do processo
-            2. Entradas e saídas
-            3. Sistemas envolvidos
-            4. Exceções e regras de negócio
-            5. Stakeholders
-            6. Complexidade estimada
-            
-            Responda em JSON com a seguinte estrutura:
-            {
-                "objectives": ["lista de objetivos"],
-                "inputs": ["lista de entradas"],
-                "outputs": ["lista de saídas"],
-                "systems": ["sistemas envolvidos"],
-                "exceptions": ["exceções identificadas"],
-                "stakeholders": ["stakeholders"],
-                "complexity": "low/medium/high",
-                "estimated_hours": 0,
-                "confidence": 0-100
-            }"""),
-            ("human", text)
-        ])
-        
-        response = self.llm.invoke(prompt.format_messages())
-        return json.loads(response.content)
-    
-    def _process_image(self, file_path: str) -> Dict[str, Any]:
-        """Processa imagem com OCR e análise visual"""
+    @classmethod
+    async def cleanup(cls):
+        """Limpar recursos do serviço de IA"""
         try:
-            # OCR
-            image = Image.open(file_path)
-            text = pytesseract.image_to_string(image, lang='por')
+            if cls.openai_client:
+                await cls.openai_client.close()
+            logger.info("AI Service cleaned up")
+        except Exception as e:
+            logger.error("AI Service cleanup failed", error=str(e))
+    
+    @classmethod
+    async def check_health(cls) -> bool:
+        """Verificar saúde do serviço de IA"""
+        try:
+            if not cls.initialized:
+                return False
             
-            # Análise visual com OpenCV
-            img_cv = cv2.imread(file_path)
-            analysis = self._analyze_image_content(img_cv)
+            # Testar conexão com OpenAI
+            response = await cls.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Hello"}],
+                max_tokens=10
+            )
             
-            # Processa texto extraído
-            text_analysis = self._process_text(text) if text.strip() else {}
-            
-            return {
-                "ocr_text": text,
-                "visual_analysis": analysis,
-                "text_analysis": text_analysis,
-                "type": "image_analysis"
-            }
+            return response is not None
             
         except Exception as e:
-            return {"error": f"Erro ao processar imagem: {str(e)}"}
+            logger.error("AI Service health check failed", error=str(e))
+            return False
     
-    def _process_pdf(self, file_path: str) -> Dict[str, Any]:
-        """Processa PDF e extrai texto"""
+    @classmethod
+    async def process_text_message(cls, message: str, context: Dict = None) -> Dict:
+        """Processar mensagem de texto"""
         try:
-            text = ""
-            with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                for page in pdf_reader.pages:
-                    text += page.extract_text()
+            if not cls.initialized:
+                raise Exception("AI Service not initialized")
             
-            # Processa texto extraído
-            analysis = self._process_text(text)
-            analysis["source"] = "pdf"
+            # Construir prompt com contexto
+            system_prompt = """
+            Você é um assistente especializado em automação RPA (Robotic Process Automation).
+            Sua função é ajudar a identificar oportunidades de automação e extrair requisitos
+            de processos de negócio.
             
-            return analysis
-            
-        except Exception as e:
-            return {"error": f"Erro ao processar PDF: {str(e)}"}
-    
-    def _process_audio(self, file_path: str) -> Dict[str, Any]:
-        """Processa áudio com Whisper"""
-        try:
-            # Transcreve áudio
-            with open(file_path, "rb") as audio_file:
-                transcript = self.openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file
-                )
-            
-            text = transcript.text
-            
-            # Análise de sentimento
-            sentiment_prompt = f"""
-            Analise o sentimento e tom da seguinte transcrição:
-            {text}
-            
-            Responda em JSON:
-            {{
-                "sentiment": "positive/negative/neutral",
-                "confidence": 0-100,
-                "key_points": ["pontos principais"],
-                "emotion": "emotion detected"
-            }}
+            Analise a mensagem do usuário e forneça:
+            1. Identificação de processos candidatos à automação
+            2. Requisitos técnicos identificados
+            3. Estimativa de complexidade
+            4. Recomendações de ferramentas RPA
+            5. Próximos passos sugeridos
             """
             
-            sentiment_response = self.llm.invoke([HumanMessage(content=sentiment_prompt)])
-            sentiment_analysis = json.loads(sentiment_response.content)
+            user_prompt = f"""
+            Mensagem do usuário: {message}
             
-            # Processa texto transcrito
-            text_analysis = self._process_text(text)
+            Contexto adicional: {json.dumps(context) if context else 'Nenhum'}
             
+            Por favor, analise e forneça uma resposta estruturada.
+            """
+            
+            # Processar com OpenAI
+            response = await cls.openai_client.chat.completions.create(
+                model=settings.AI_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=settings.AI_TEMPERATURE,
+                max_tokens=settings.AI_MAX_TOKENS
+            )
+            
+            ai_response = response.choices[0].message.content
+            
+            # Estruturar resposta
+            structured_response = {
+                "raw_response": ai_response,
+                "automation_opportunities": cls._extract_automation_opportunities(ai_response),
+                "technical_requirements": cls._extract_technical_requirements(ai_response),
+                "complexity_estimate": cls._extract_complexity_estimate(ai_response),
+                "tool_recommendations": cls._extract_tool_recommendations(ai_response),
+                "next_steps": cls._extract_next_steps(ai_response),
+                "confidence_score": cls._calculate_confidence_score(ai_response),
+                "processing_timestamp": datetime.utcnow().isoformat()
+            }
+            
+            logger.info("Text message processed successfully", 
+                       message_length=len(message),
+                       confidence_score=structured_response["confidence_score"])
+            
+            return structured_response
+            
+        except Exception as e:
+            logger.error("Text message processing failed", error=str(e))
             return {
-                "transcript": text,
-                "sentiment_analysis": sentiment_analysis,
-                "text_analysis": text_analysis,
-                "type": "audio_analysis"
+                "error": str(e),
+                "raw_response": "Erro no processamento da mensagem",
+                "confidence_score": 0.0
+            }
+    
+    @classmethod
+    async def process_image(cls, image_data: bytes, description: str = None) -> Dict:
+        """Processar imagem com análise visual"""
+        try:
+            if not cls.initialized:
+                raise Exception("AI Service not initialized")
+            
+            # Converter imagem para base64
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            # Construir prompt para análise de imagem
+            system_prompt = """
+            Você é um especialista em análise de interfaces e processos de negócio.
+            Analise a imagem fornecida e identifique:
+            1. Elementos de interface (botões, campos, menus)
+            2. Fluxo de processo visível
+            3. Oportunidades de automação
+            4. Requisitos técnicos para automação
+            5. Estimativa de complexidade
+            """
+            
+            user_prompt = f"""
+            Analise esta imagem de interface/processo:
+            
+            Descrição adicional: {description if description else 'Nenhuma'}
+            
+            Forneça uma análise detalhada dos elementos visíveis e oportunidades de automação.
+            """
+            
+            # Processar com OpenAI Vision
+            response = await cls.openai_client.chat.completions.create(
+                model="gpt-4-vision-preview",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=1000
+            )
+            
+            vision_analysis = response.choices[0].message.content
+            
+            # Estruturar resposta
+            structured_response = {
+                "raw_response": vision_analysis,
+                "ui_elements": cls._extract_ui_elements(vision_analysis),
+                "process_flow": cls._extract_process_flow(vision_analysis),
+                "automation_opportunities": cls._extract_automation_opportunities(vision_analysis),
+                "technical_requirements": cls._extract_technical_requirements(vision_analysis),
+                "complexity_estimate": cls._extract_complexity_estimate(vision_analysis),
+                "confidence_score": cls._calculate_confidence_score(vision_analysis),
+                "processing_timestamp": datetime.utcnow().isoformat()
             }
             
+            logger.info("Image processed successfully", 
+                       image_size=len(image_data),
+                       confidence_score=structured_response["confidence_score"])
+            
+            return structured_response
+            
         except Exception as e:
-            return {"error": f"Erro ao processar áudio: {str(e)}"}
-    
-    def _process_bpmn(self, file_path: str) -> Dict[str, Any]:
-        """Processa arquivo BPMN"""
-        try:
-            tree = ET.parse(file_path)
-            root = tree.getroot()
-            
-            # Extrai elementos BPMN
-            processes = []
-            tasks = []
-            gateways = []
-            
-            for process in root.findall('.//{http://www.omg.org/spec/BPMN/20100524/MODEL}process'):
-                process_info = {
-                    "id": process.get('id'),
-                    "name": process.get('name'),
-                    "tasks": [],
-                    "gateways": []
-                }
-                
-                # Extrai tarefas
-                for task in process.findall('.//{http://www.omg.org/spec/BPMN/20100524/MODEL}task'):
-                    task_info = {
-                        "id": task.get('id'),
-                        "name": task.get('name'),
-                        "type": "task"
-                    }
-                    process_info["tasks"].append(task_info)
-                    tasks.append(task_info)
-                
-                # Extrai gateways
-                for gateway in process.findall('.//{http://www.omg.org/spec/BPMN/20100524/MODEL}gateway'):
-                    gateway_info = {
-                        "id": gateway.get('id'),
-                        "name": gateway.get('name'),
-                        "type": gateway.get('gatewayDirection', 'unspecified')
-                    }
-                    process_info["gateways"].append(gateway_info)
-                    gateways.append(gateway_info)
-                
-                processes.append(process_info)
-            
-            # Análise de complexidade
-            complexity = self._analyze_bpmn_complexity(processes)
-            
+            logger.error("Image processing failed", error=str(e))
             return {
-                "processes": processes,
-                "total_tasks": len(tasks),
-                "total_gateways": len(gateways),
-                "complexity": complexity,
-                "type": "bpmn_analysis"
+                "error": str(e),
+                "raw_response": "Erro no processamento da imagem",
+                "confidence_score": 0.0
+            }
+    
+    @classmethod
+    async def process_pdf(cls, pdf_content: str, filename: str = None) -> Dict:
+        """Processar documento PDF"""
+        try:
+            if not cls.initialized:
+                raise Exception("AI Service not initialized")
+            
+            # Construir prompt para análise de PDF
+            system_prompt = """
+            Você é um especialista em análise de documentos de negócio.
+            Analise o conteúdo do PDF e extraia:
+            1. Processos de negócio descritos
+            2. Requisitos funcionais e técnicos
+            3. Stakeholders e responsabilidades
+            4. Oportunidades de automação
+            5. Critérios de aceite
+            6. Estimativa de complexidade
+            """
+            
+            user_prompt = f"""
+            Analise este documento PDF:
+            
+            Nome do arquivo: {filename if filename else 'Documento'}
+            Conteúdo: {pdf_content[:4000]}  # Limitar tamanho
+            
+            Extraia informações estruturadas sobre processos e requisitos.
+            """
+            
+            # Processar com OpenAI
+            response = await cls.openai_client.chat.completions.create(
+                model=settings.AI_MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=settings.AI_TEMPERATURE,
+                max_tokens=settings.AI_MAX_TOKENS
+            )
+            
+            pdf_analysis = response.choices[0].message.content
+            
+            # Estruturar resposta
+            structured_response = {
+                "raw_response": pdf_analysis,
+                "business_processes": cls._extract_business_processes(pdf_analysis),
+                "functional_requirements": cls._extract_functional_requirements(pdf_analysis),
+                "technical_requirements": cls._extract_technical_requirements(pdf_analysis),
+                "stakeholders": cls._extract_stakeholders(pdf_analysis),
+                "automation_opportunities": cls._extract_automation_opportunities(pdf_analysis),
+                "acceptance_criteria": cls._extract_acceptance_criteria(pdf_analysis),
+                "complexity_estimate": cls._extract_complexity_estimate(pdf_analysis),
+                "confidence_score": cls._calculate_confidence_score(pdf_analysis),
+                "processing_timestamp": datetime.utcnow().isoformat()
             }
             
-        except Exception as e:
-            return {"error": f"Erro ao processar BPMN: {str(e)}"}
-    
-    def _process_document(self, file_path: str, doc_type: str) -> Dict[str, Any]:
-        """Processa documentos Excel/Word"""
-        try:
-            if doc_type == 'excel':
-                # Lê Excel
-                df = pd.read_excel(file_path)
-                data_summary = {
-                    "rows": len(df),
-                    "columns": len(df.columns),
-                    "column_names": df.columns.tolist(),
-                    "data_types": df.dtypes.to_dict()
-                }
-                
-                # Converte para texto para análise
-                text = df.to_string()
-                
-            elif doc_type == 'word':
-                # Para Word, seria necessário python-docx
-                # Por simplicidade, retornamos estrutura básica
-                data_summary = {
-                    "type": "word_document",
-                    "file_path": file_path
-                }
-                text = f"Documento Word: {file_path}"
+            logger.info("PDF processed successfully", 
+                       filename=filename,
+                       content_length=len(pdf_content),
+                       confidence_score=structured_response["confidence_score"])
             
-            # Processa texto extraído
-            analysis = self._process_text(text)
-            analysis["document_summary"] = data_summary
-            
-            return analysis
+            return structured_response
             
         except Exception as e:
-            return {"error": f"Erro ao processar documento: {str(e)}"}
+            logger.error("PDF processing failed", error=str(e))
+            return {
+                "error": str(e),
+                "raw_response": "Erro no processamento do PDF",
+                "confidence_score": 0.0
+            }
     
-    def _analyze_image_content(self, img: np.ndarray) -> Dict[str, Any]:
-        """Analisa conteúdo visual da imagem"""
+    @classmethod
+    async def process_audio(cls, audio_data: bytes, filename: str = None) -> Dict:
+        """Processar áudio com transcrição e análise"""
         try:
-            # Converte para escala de cinza
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            if not cls.initialized:
+                raise Exception("AI Service not initialized")
             
-            # Detecta bordas
-            edges = cv2.Canny(gray, 50, 150)
+            # Transcrição com Whisper
+            transcript = await cls.openai_client.audio.transcriptions.create(
+                model="whisper-1",
+                file=("audio.wav", audio_data, "audio/wav")
+            )
             
-            # Detecta formas
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            transcribed_text = transcript.text
             
-            analysis = {
-                "has_text": len(cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]) > 0,
-                "contour_count": len(contours),
-                "image_size": img.shape,
-                "estimated_complexity": "low" if len(contours) < 10 else "medium" if len(contours) < 50 else "high"
+            # Análise do conteúdo transcrito
+            analysis_response = await cls.process_text_message(
+                transcribed_text,
+                context={"source": "audio", "filename": filename}
+            )
+            
+            # Estruturar resposta
+            structured_response = {
+                "transcription": transcribed_text,
+                "audio_analysis": analysis_response,
+                "confidence_score": cls._calculate_confidence_score(transcribed_text),
+                "processing_timestamp": datetime.utcnow().isoformat()
             }
             
-            return analysis
+            logger.info("Audio processed successfully", 
+                       filename=filename,
+                       audio_size=len(audio_data),
+                       confidence_score=structured_response["confidence_score"])
+            
+            return structured_response
             
         except Exception as e:
-            return {"error": f"Erro na análise visual: {str(e)}"}
+            logger.error("Audio processing failed", error=str(e))
+            return {
+                "error": str(e),
+                "transcription": "Erro na transcrição do áudio",
+                "confidence_score": 0.0
+            }
     
-    def _analyze_bpmn_complexity(self, processes: List[Dict]) -> str:
-        """Analisa complexidade do BPMN"""
-        total_tasks = sum(len(p["tasks"]) for p in processes)
-        total_gateways = sum(len(p["gateways"]) for p in processes)
-        
-        if total_tasks < 5 and total_gateways < 3:
-            return "low"
-        elif total_tasks < 15 and total_gateways < 8:
-            return "medium"
-        else:
-            return "high"
+    # Métodos auxiliares para extração de informações
+    @staticmethod
+    def _extract_automation_opportunities(text: str) -> List[Dict]:
+        """Extrair oportunidades de automação do texto"""
+        # Implementar lógica de extração
+        return []
     
-    def extract_requirements_from_conversation(self, conversation_id: str) -> List[Dict[str, Any]]:
-        """Extrai requisitos de uma conversação completa"""
-        try:
-            # Aqui você implementaria a lógica para buscar todas as mensagens
-            # da conversação e fazer uma análise consolidada
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", """Analise toda a conversação e extraia requisitos consolidados.
-                Agrupe por tipo e prioridade.
-                
-                Responda em JSON:
-                {
-                    "requirements": [
-                        {
-                            "type": "objective/input/output/exception/system/stakeholder",
-                            "description": "descrição",
-                            "priority": 1-5,
-                            "complexity": "low/medium/high",
-                            "confidence": 0-100
-                        }
-                    ],
-                    "summary": "resumo geral",
-                    "estimated_hours": 0,
-                    "recommended_tools": ["lista de ferramentas"]
-                }"""),
-                ("human", "Analise a conversação completa")
-            ])
-            
-            response = self.llm.invoke(prompt.format_messages())
-            return json.loads(response.content)
-            
-        except Exception as e:
-            logger.error(f"Erro ao extrair requisitos: {str(e)}")
-            return {"error": str(e)}
+    @staticmethod
+    def _extract_technical_requirements(text: str) -> List[Dict]:
+        """Extrair requisitos técnicos do texto"""
+        # Implementar lógica de extração
+        return []
     
-    def generate_user_stories(self, requirements: List[Dict]) -> List[Dict[str, Any]]:
-        """Gera user stories baseado nos requisitos"""
-        try:
-            requirements_text = json.dumps(requirements, indent=2)
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", """Gere user stories baseado nos requisitos fornecidos.
-                Use o formato: "Como [tipo de usuário], eu quero [funcionalidade] para [benefício]"
-                
-                Responda em JSON:
-                {
-                    "user_stories": [
-                        {
-                            "title": "título",
-                            "description": "descrição completa",
-                            "acceptance_criteria": ["critérios"],
-                            "story_points": 1-13,
-                            "priority": 1-5,
-                            "business_value": 1-5
-                        }
-                    ]
-                }"""),
-                ("human", f"Requisitos: {requirements_text}")
-            ])
-            
-            response = self.llm.invoke(prompt.format_messages())
-            return json.loads(response.content)
-            
-        except Exception as e:
-            logger.error(f"Erro ao gerar user stories: {str(e)}")
-            return {"error": str(e)}
+    @staticmethod
+    def _extract_complexity_estimate(text: str) -> Dict:
+        """Extrair estimativa de complexidade"""
+        # Implementar lógica de extração
+        return {"level": "medium", "score": 5}
     
-    def recommend_rpa_tool(self, requirements: List[Dict]) -> Dict[str, Any]:
-        """Recomenda ferramenta RPA baseado nos requisitos"""
-        try:
-            requirements_text = json.dumps(requirements, indent=2)
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", """Analise os requisitos e recomende a melhor ferramenta RPA.
-                Considere: n8n, Python, Playwright, Selenium, SikuliX, AutoHotkey.
-                
-                Responda em JSON:
-                {
-                    "recommended_tool": "nome da ferramenta",
-                    "reasoning": "justificativa",
-                    "alternatives": ["alternativas"],
-                    "estimated_development_time": "tempo estimado",
-                    "complexity": "low/medium/high",
-                    "roi_estimate": "estimativa de ROI"
-                }"""),
-                ("human", f"Requisitos: {requirements_text}")
-            ])
-            
-            response = self.llm.invoke(prompt.format_messages())
-            return json.loads(response.content)
-            
-        except Exception as e:
-            logger.error(f"Erro ao recomendar ferramenta: {str(e)}")
-            return {"error": str(e)}
+    @staticmethod
+    def _extract_tool_recommendations(text: str) -> List[str]:
+        """Extrair recomendações de ferramentas"""
+        # Implementar lógica de extração
+        return ["n8n", "Python", "Playwright"]
+    
+    @staticmethod
+    def _extract_next_steps(text: str) -> List[str]:
+        """Extrair próximos passos"""
+        # Implementar lógica de extração
+        return ["Criar PDD", "Definir escopo", "Iniciar desenvolvimento"]
+    
+    @staticmethod
+    def _extract_ui_elements(text: str) -> List[Dict]:
+        """Extrair elementos de UI"""
+        # Implementar lógica de extração
+        return []
+    
+    @staticmethod
+    def _extract_process_flow(text: str) -> Dict:
+        """Extrair fluxo de processo"""
+        # Implementar lógica de extração
+        return {"steps": [], "decision_points": []}
+    
+    @staticmethod
+    def _extract_business_processes(text: str) -> List[Dict]:
+        """Extrair processos de negócio"""
+        # Implementar lógica de extração
+        return []
+    
+    @staticmethod
+    def _extract_functional_requirements(text: str) -> List[Dict]:
+        """Extrair requisitos funcionais"""
+        # Implementar lógica de extração
+        return []
+    
+    @staticmethod
+    def _extract_stakeholders(text: str) -> List[Dict]:
+        """Extrair stakeholders"""
+        # Implementar lógica de extração
+        return []
+    
+    @staticmethod
+    def _extract_acceptance_criteria(text: str) -> List[str]:
+        """Extrair critérios de aceite"""
+        # Implementar lógica de extração
+        return []
+    
+    @staticmethod
+    def _calculate_confidence_score(text: str) -> float:
+        """Calcular score de confiança da análise"""
+        # Implementar lógica de cálculo
+        return 0.8
+
+
+# Instância global do serviço
+ai_service = AIService() 

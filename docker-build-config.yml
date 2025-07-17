@@ -1,0 +1,196 @@
+# Configuração para Build das Imagens Docker - MILAPP
+
+version: '3.8'
+
+# Configurações de build
+build_config:
+  # Backend
+  backend:
+    context: ./backend
+    dockerfile: Dockerfile
+    image_name: milapp-backend
+    tag: latest
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+    volumes:
+      - ./backend:/app
+      - milapp_files:/app/uploads
+    depends_on:
+      - redis
+      - minio
+
+  # Frontend
+  frontend:
+    context: ./frontend
+    dockerfile: Dockerfile
+    image_name: milapp-frontend
+    tag: latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf
+
+# Configurações de rede
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Configurações de volumes
+volumes:
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  milapp_files:
+    driver: local
+
+# Configurações de monitoramento
+monitoring:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./devops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./devops/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./devops/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+# Configurações de infraestrutura
+infrastructure:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+# Configurações de segurança
+security:
+  # Headers de segurança para Nginx
+  nginx_security_headers:
+    - "X-Frame-Options: SAMEORIGIN"
+    - "X-XSS-Protection: 1; mode=block"
+    - "X-Content-Type-Options: nosniff"
+    - "Referrer-Policy: no-referrer-when-downgrade"
+    - "Content-Security-Policy: default-src 'self' http: https: data: blob: 'unsafe-inline'"
+
+  # Configurações de CORS
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:3001"
+    - "http://localhost:8000"
+
+# Configurações de performance
+performance:
+  # Limites de recursos
+  resource_limits:
+    backend:
+      memory: "1G"
+      cpus: "0.5"
+    frontend:
+      memory: "512M"
+      cpus: "0.25"
+    redis:
+      memory: "256M"
+      cpus: "0.1"
+    minio:
+      memory: "512M"
+      cpus: "0.25"
+
+  # Configurações de cache
+  cache_settings:
+    nginx:
+      static_files: "1y"
+      api_responses: "5m"
+    redis:
+      ttl: "3600"
+      max_memory: "256mb"
+
+# Configurações de logs
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# Health checks
+health_checks:
+  backend:
+    test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    interval: "30s"
+    timeout: "10s"
+    retries: 3
+    start_period: "40s"
+
+  frontend:
+    test: ["CMD", "curl", "-f", "http://localhost/health"]
+    interval: "30s"
+    timeout: "10s"
+    retries: 3
+    start_period: "40s"
+
+  redis:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: "30s"
+    timeout: "10s"
+    retries: 3
+
+# Configurações de backup
+backup:
+  schedule: "0 2 * * *"  # 2 AM daily
+  retention: "7 days"
+  volumes:
+    - redis_data
+    - minio_data
+    - prometheus_data
+    - grafana_data
+    - milapp_files
+
+# Configurações de atualização
+update:
+  auto_update: false
+  update_schedule: "0 3 * * 0"  # Sunday 3 AM
+  rollback_enabled: true
+  backup_before_update: true 

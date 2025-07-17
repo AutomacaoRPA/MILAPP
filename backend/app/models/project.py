@@ -1,288 +1,126 @@
 """
-Modelo de projeto do MILAPP
+Modelo de Projeto
 """
-from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, Boolean
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func
+
+from datetime import datetime
+from typing import Optional
+from sqlalchemy import Column, String, Text, DateTime, Integer, Float, Boolean, ForeignKey, Numeric, Date
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
 import uuid
-from datetime import datetime, date
+from sqlalchemy.sql import func
 
-from ..core.database import Base
-
+from app.core.database import Base
 
 class Project(Base):
-    """Modelo SQLAlchemy para projetos"""
+    """Modelo de Projeto"""
+    
     __tablename__ = "projects"
     
+    # Identificação
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Informações básicas
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    type = Column(String(50), default="automation")
+    priority = Column(String(20), default="medium")
+    methodology = Column(String(20), default="scrum")
+    
+    # Status e progresso
     status = Column(String(50), default="planning")
-    methodology = Column(String(50), default="scrum")
     
     # Relacionamentos
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id"), nullable=True)
     
+    # Métricas de negócio
+    roi_target = Column(Numeric(10, 2), nullable=True)
+    roi_actual = Column(Numeric(10, 2), nullable=True)
+    estimated_effort = Column(Integer, nullable=True)  # horas
+    actual_effort = Column(Integer, nullable=True)  # horas
+    
     # Datas
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    start_date = Column(DateTime(timezone=True), nullable=True)
-    end_date = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Configurações do projeto
-    settings = Column(JSONB, default={})
-    
-    # Métricas
-    estimated_hours = Column(Integer, default=0)
-    actual_hours = Column(Integer, default=0)
-    budget = Column(Integer, default=0)  # em centavos
-    actual_cost = Column(Integer, default=0)
-    
-    # Status de qualidade
-    quality_score = Column(Integer, default=0)  # 0-100
-    risk_level = Column(String(20), default="low")  # low, medium, high, critical
+    # Configurações
+    is_active = Column(Boolean, default=True, nullable=False)
     
     # Relacionamentos
+    user = relationship("User", back_populates="projects")
+    team = relationship("Team", back_populates="projects")
     conversations = relationship("Conversation", back_populates="project")
     documents = relationship("Document", back_populates="project")
-    user_stories = relationship("UserStory", back_populates="project")
+    tickets = relationship("Ticket", back_populates="project")
     quality_gates = relationship("QualityGate", back_populates="project")
     deployments = relationship("Deployment", back_populates="project")
-
-
-class Sprint(Base):
-    """Modelo SQLAlchemy para sprints"""
-    __tablename__ = "sprints"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    name = Column(String(255), nullable=False)
-    goal = Column(Text, nullable=True)
+    def __repr__(self):
+        return f"<Project(id={self.id}, name='{self.name}', status='{self.status}')>"
     
-    # Datas
-    start_date = Column(DateTime(timezone=True), nullable=False)
-    end_date = Column(DateTime(timezone=True), nullable=False)
+    @property
+    def completion_percentage(self) -> float:
+        """Calcular porcentagem de conclusão"""
+        status_percentages = {
+            "planning": 10,
+            "development": 50,
+            "testing": 80,
+            "deployed": 100,
+            "maintenance": 100,
+            "cancelled": 0
+        }
+        return status_percentages.get(self.status, 0)
     
-    # Capacidade e métricas
-    capacity = Column(Integer, default=0)  # horas
-    velocity = Column(Integer, default=0)  # story points
-    status = Column(String(50), default="planning")  # planning, active, completed
+    @property
+    def days_remaining(self) -> Optional[int]:
+        """Calcular dias restantes"""
+        if not self.end_date:
+            return None
+        
+        remaining = self.end_date.date() - datetime.now().date()
+        return max(0, remaining.days)
     
-    # Relacionamentos
-    user_stories = relationship("UserStory", back_populates="sprint")
-    project = relationship("Project", back_populates="sprints")
-
-
-class UserStory(Base):
-    """Modelo SQLAlchemy para user stories"""
-    __tablename__ = "user_stories"
+    @property
+    def risk_level(self) -> str:
+        """Calcular nível de risco"""
+        if self.status == "cancelled":
+            return "high"
+        elif self.priority == "critical":
+            return "high"
+        elif self.priority == "high":
+            return "medium"
+        else:
+            return "low"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
-    sprint_id = Column(UUID(as_uuid=True), ForeignKey("sprints.id"), nullable=True)
+    @property
+    def roi_percentage(self) -> float:
+        """Calcular ROI em porcentagem"""
+        if not self.roi_target or self.roi_target == 0:
+            return 0.0
+        
+        return ((self.roi_actual or 0) / self.roi_target) * 100
     
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    acceptance_criteria = Column(JSONB, default=[])
-    
-    # Estimativas
-    story_points = Column(Integer, default=0)
-    estimated_hours = Column(Integer, default=0)
-    actual_hours = Column(Integer, default=0)
-    
-    # Priorização
-    priority = Column(Integer, default=0)
-    business_value = Column(Integer, default=0)
-    
-    # Status
-    status = Column(String(50), default="backlog")  # backlog, todo, in_progress, testing, done
-    assigned_to = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    
-    # Datas
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    
-    # Relacionamentos
-    project = relationship("Project", back_populates="user_stories")
-    sprint = relationship("Sprint", back_populates="user_stories")
-
-
-# Schemas Pydantic
-class ProjectCreate(BaseModel):
-    """Schema para criação de projeto"""
-    name: str
-    description: Optional[str] = None
-    methodology: str = "scrum"
-    team_id: Optional[uuid.UUID] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    estimated_hours: int = 0
-    budget: int = 0
-    settings: Dict[str, Any] = {}
-
-
-class ProjectUpdate(BaseModel):
-    """Schema para atualização de projeto"""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[str] = None
-    methodology: Optional[str] = None
-    team_id: Optional[uuid.UUID] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    estimated_hours: Optional[int] = None
-    budget: Optional[int] = None
-    settings: Optional[Dict[str, Any]] = None
-    quality_score: Optional[int] = None
-    risk_level: Optional[str] = None
-
-
-class ProjectResponse(BaseModel):
-    """Schema para resposta de projeto"""
-    id: uuid.UUID
-    name: str
-    description: Optional[str] = None
-    status: str
-    methodology: str
-    created_by: uuid.UUID
-    team_id: Optional[uuid.UUID] = None
-    created_at: datetime
-    updated_at: datetime
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    estimated_hours: int
-    actual_hours: int
-    budget: int
-    actual_cost: int
-    quality_score: int
-    risk_level: str
-    
-    class Config:
-        from_attributes = True
-
-
-class SprintCreate(BaseModel):
-    """Schema para criação de sprint"""
-    name: str
-    goal: Optional[str] = None
-    start_date: datetime
-    end_date: datetime
-    capacity: int = 0
-
-
-class SprintUpdate(BaseModel):
-    """Schema para atualização de sprint"""
-    name: Optional[str] = None
-    goal: Optional[str] = None
-    start_date: Optional[datetime] = None
-    end_date: Optional[datetime] = None
-    capacity: Optional[int] = None
-    velocity: Optional[int] = None
-    status: Optional[str] = None
-
-
-class SprintResponse(BaseModel):
-    """Schema para resposta de sprint"""
-    id: uuid.UUID
-    project_id: uuid.UUID
-    name: str
-    goal: Optional[str] = None
-    start_date: datetime
-    end_date: datetime
-    capacity: int
-    velocity: int
-    status: str
-    
-    class Config:
-        from_attributes = True
-
-
-class UserStoryCreate(BaseModel):
-    """Schema para criação de user story"""
-    title: str
-    description: Optional[str] = None
-    acceptance_criteria: List[str] = []
-    story_points: int = 0
-    estimated_hours: int = 0
-    priority: int = 0
-    business_value: int = 0
-    sprint_id: Optional[uuid.UUID] = None
-    assigned_to: Optional[uuid.UUID] = None
-
-
-class UserStoryUpdate(BaseModel):
-    """Schema para atualização de user story"""
-    title: Optional[str] = None
-    description: Optional[str] = None
-    acceptance_criteria: Optional[List[str]] = None
-    story_points: Optional[int] = None
-    estimated_hours: Optional[int] = None
-    actual_hours: Optional[int] = None
-    priority: Optional[int] = None
-    business_value: Optional[int] = None
-    status: Optional[str] = None
-    sprint_id: Optional[uuid.UUID] = None
-    assigned_to: Optional[uuid.UUID] = None
-
-
-class UserStoryResponse(BaseModel):
-    """Schema para resposta de user story"""
-    id: uuid.UUID
-    project_id: uuid.UUID
-    sprint_id: Optional[uuid.UUID] = None
-    title: str
-    description: Optional[str] = None
-    acceptance_criteria: List[str]
-    story_points: int
-    estimated_hours: int
-    actual_hours: int
-    priority: int
-    business_value: int
-    status: str
-    assigned_to: Optional[uuid.UUID] = None
-    created_at: datetime
-    updated_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
-
-# Status possíveis
-PROJECT_STATUSES = [
-    "planning",
-    "development", 
-    "testing",
-    "deployed",
-    "maintenance",
-    "completed",
-    "cancelled"
-]
-
-SPRINT_STATUSES = [
-    "planning",
-    "active",
-    "completed"
-]
-
-USER_STORY_STATUSES = [
-    "backlog",
-    "todo",
-    "in_progress", 
-    "testing",
-    "done"
-]
-
-RISK_LEVELS = [
-    "low",
-    "medium", 
-    "high",
-    "critical"
-]
+    def to_dict(self):
+        """Convert project to dictionary"""
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "description": self.description,
+            "type": self.type,
+            "status": self.status,
+            "priority": self.priority,
+            "methodology": self.methodology,
+            "team_id": str(self.team_id) if self.team_id else None,
+            "created_by": str(self.created_by),
+            "roi_target": float(self.roi_target) if self.roi_target else None,
+            "roi_actual": float(self.roi_actual) if self.roi_actual else None,
+            "estimated_effort": self.estimated_effort,
+            "actual_effort": self.actual_effort,
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
+        } 

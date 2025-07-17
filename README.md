@@ -1,173 +1,248 @@
-# MILAPP - Sistema Integrado de Gestão RPA e Inovação
+# MILAPP - Centro de Excelência em Automação RPA
 
 ## 🎯 Visão Geral
 
-O MILAPP é um **software único e integrado** desenvolvido especificamente para gestão completa de um Centro de Excelência (CoE) de Automação. Toda a funcionalidade está contida numa única aplicação web, com módulos internos que se comunicam seamless.
-
-### Características Principais
-- **Software único**: Uma aplicação web completa
-- **Módulos integrados**: Todos os módulos numa única base de código
-- **Banco unificado**: Supabase como database principal
-- **Interface consistente**: React/Streamlit para frontend unificado
-- **API centralizada**: FastAPI como backend único
-- **IA integrada**: LangChain + OpenAI para inteligência artificial
+O MILAPP é uma plataforma única e integrada para gestão completa de Centros de Excelência (CoE) de Automação RPA. Desenvolvido especificamente para substituir múltiplas ferramentas externas, oferece uma solução autossuficiente com IA integrada, governança robusta e experiência unificada.
 
 ## 🏗️ Arquitetura
 
-```
-MILAPP (Aplicação Web Única)
-├── Frontend Layer
-│   ├── React Web App (Interface Principal)
-│   ├── Streamlit Dashboards (Dashboards Executivos)
-│   └── Mobile PWA (Acesso Mobile)
-├── Backend Layer
-│   ├── FastAPI (API Principal)
-│   ├── LangChain Engine (IA Conversacional)
-│   ├── Workflow Engine (Processos Internos)
-│   └── Integration Layer (APIs Externas)
-├── Data Layer
-│   ├── Supabase (Database Principal)
-│   ├── Redis (Cache & Sessions)
-│   └── File Storage (Documentos & Arquivos)
-└── Integration Layer
-    ├── n8n API (Orquestração Externa)
-    ├── Power BI API (Dashboards Corporativos)
-    ├── Azure AD (Autenticação)
-    └── Notification APIs (Email, WhatsApp, Teams)
-```
+### Stack Tecnológico
+- **Backend**: Python 3.11+ / FastAPI
+- **Frontend**: React 18 / TypeScript / Material-UI
+- **Database**: Supabase (PostgreSQL)
+- **Cache**: Redis
+- **IA**: OpenAI GPT-4 / LangChain
+- **Containerização**: Docker / Docker Compose
+- **Monitoramento**: Prometheus / Grafana
 
-## 🧩 Módulos Principais
+### Componentes Principais
+- **Chat IA Multimodal**: Levantamento inteligente de requisitos
+- **Gestão de Projetos Ágil**: Kanban nativo integrado
+- **Quality Gates**: Governança automatizada (G1-G4)
+- **Recomendação RPA**: Análise inteligente de ferramentas
+- **Dashboards Executivos**: Analytics preditivos
+- **Pipeline CI/CD**: Deploy automatizado
 
-### Módulo 1: Levantamento de Requisitos IA
-- Chat conversacional multimodal
-- Processamento de texto, imagens, PDFs, áudios
-- Análise de fluxos Bizagi (.bpmn)
-- Extração automática de requisitos
-
-### Módulo 2: Geração de Documentos de Governança
-- PDD (Project Definition Document)
-- SDD (System Design Document)
-- GMUD (Gestão de Mudanças)
-- User Stories com critérios de aceite
-
-### Módulo 3: Gestão de Projetos Ágil
-- Product Backlog com priorização IA
-- Sprint Backlog com capacity planning
-- Kanban Board customizável
-- Métricas de flow em tempo real
-
-### Módulo 4: Quality Gates e Governança
-- Quality Gates (G1-G4)
-- Matriz RACI automática
-- Workflow de aprovações
-- SLA tracking automático
-
-### Módulo 5: Recomendação de Ferramenta RPA
-- Análise de adequação
-- Matriz de decisão (n8n, Python, Playwright, etc.)
-- Simulação de ROI
-- Recomendação com justificativa IA
-
-### Módulo 6: Desenvolvimento e Code Review
-- Editor integrado
-- Code review automático
-- Gestão de versões
-- Deploy tracking
-
-### Módulo 7: Testes e Validação
-- Geração de casos de teste
-- Execução automática
-- Validação de negócio
-- UAT integrado
-
-### Módulo 8: Deployment e Produção
-- Pipeline de deploy
-- Monitoramento de produção
-- Gestão de incidentes
-- Rollback automático
-
-### Módulo 9: Dashboards e Analytics
-- Dashboards executivos
-- KPIs de inovação
-- Analytics avançados
-- Relatórios customizáveis
-
-### Módulo 10: Controle de Acesso e Usuários
-- Gestão de usuários
-- RBAC (Role-Based Access Control)
-- Integração Azure AD
-- Auditoria completa
-
-## 🚀 Instalação e Deploy
+## 🚀 Configuração Rápida
 
 ### Pré-requisitos
-- Docker e Docker Compose
+- Python 3.11+
 - Node.js 18+
-- Python 3.9+
-- Supabase account
+- Docker e Docker Compose
+- Conta no Supabase
 
-### Configuração Rápida
+### 1. Configuração do Supabase
+
+1. **Crie um projeto no Supabase**:
+   - Acesse [supabase.com](https://supabase.com)
+   - Crie um novo projeto
+   - Anote as credenciais: URL, anon key, service key
+
+2. **Configure as variáveis de ambiente**:
+   ```bash
+   cp env.example .env
+   ```
+
+3. **Edite o arquivo `.env`**:
+   ```env
+   # Supabase Configuration (Required)
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_KEY=your-service-key
+   
+   # Database Configuration (Optional - will use Supabase if not provided)
+   DATABASE_URL=postgresql://user:password@localhost:5432/milapp
+   
+   # Redis Configuration
+   REDIS_URL=redis://localhost:6379/0
+   
+   # Security
+   SECRET_KEY=your-secret-key-here
+   ALGORITHM=HS256
+   ACCESS_TOKEN_EXPIRE_MINUTES=30
+   
+   # AI Services
+   OPENAI_API_KEY=sk-your-openai-key
+   LANGCHAIN_API_KEY=your-langchain-key
+   
+   # Azure AD Configuration (Optional)
+   AZURE_TENANT_ID=your-tenant-id
+   AZURE_CLIENT_ID=your-client-id
+   AZURE_CLIENT_SECRET=your-client-secret
+   ```
+
+### 2. Instalação do Backend
+
 ```bash
-# Clone o repositório
-git clone https://github.com/medsenior/milapp.git
-cd milapp
+cd backend
 
-# Configure as variáveis de ambiente
-cp .env.example .env
-# Edite .env com suas configurações
+# Instalar dependências
+pip install -r requirements.txt
 
-# Execute com Docker
-docker-compose up -d
+# Configurar banco de dados
+python -c "from app.core.database import init_db; init_db()"
 
-# Acesse em http://localhost:3000
+# Executar aplicação
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 📊 Benefícios Principais
+### 3. Instalação do Frontend
 
-- **Redução 80%** no tempo de levantamento de requisitos
-- **Aumento 60%** na qualidade das automações
-- **Diminuição 70%** no time-to-market
-- **Melhoria 90%** na governança e compliance
-- **ROI positivo** em 12 meses
+```bash
+cd frontend
 
-## 🔧 Tecnologias
+# Instalar dependências
+npm install
 
-### Frontend
-- React.js com TypeScript
-- Material-UI para componentes
-- Streamlit para dashboards
-- PWA para acesso mobile
+# Executar aplicação
+npm start
+```
 
-### Backend
-- Python 3.9+ com FastAPI
-- LangChain para IA
-- SQLAlchemy para ORM
-- Redis para cache
+### 4. Execução com Docker
 
-### Database
-- Supabase (PostgreSQL)
-- Azure Blob Storage para arquivos
+```bash
+# Construir e executar todos os serviços
+docker-compose up --build
 
-### IA/ML
-- OpenAI API
-- LangChain
-- Whisper para transcrição
-- OpenCV para processamento de imagens
+# Acessar aplicação
+# Backend: http://localhost:8000
+# Frontend: http://localhost:3000
+# API Docs: http://localhost:8000/docs
+```
 
-## 📝 Licença
+## 📊 Estrutura do Projeto
 
-Este projeto está licenciado sob a MIT License - veja o arquivo [LICENSE](LICENSE) para detalhes.
+```
+milapp/
+├── backend/                 # API FastAPI
+│   ├── app/
+│   │   ├── api/            # Endpoints da API
+│   │   ├── core/           # Configurações centrais
+│   │   ├── models/         # Modelos SQLAlchemy
+│   │   ├── services/       # Lógica de negócio
+│   │   └── main.py         # Aplicação principal
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/               # Aplicação React
+│   ├── src/
+│   │   ├── components/     # Componentes React
+│   │   ├── pages/          # Páginas da aplicação
+│   │   ├── services/       # Serviços de API
+│   │   └── styles/         # Estilos CSS
+│   ├── package.json
+│   └── Dockerfile
+├── docker-compose.yml      # Orquestração Docker
+├── env.example            # Variáveis de ambiente
+└── README.md
+```
+
+## 🔧 Configuração do Supabase
+
+### 1. Configuração do Banco de Dados
+
+O MILAPP usa o Supabase como banco de dados principal. As tabelas são criadas automaticamente quando você executa:
+
+```python
+from app.core.database import init_db
+init_db()
+```
+
+### 2. Estrutura das Tabelas
+
+As principais tabelas incluem:
+- `users`: Usuários do sistema
+- `projects`: Projetos de automação
+- `conversations`: Conversas com IA
+- `messages`: Mensagens das conversas
+- `documents`: Documentos gerados
+- `tickets`: Tickets/User Stories
+- `quality_gates`: Gates de qualidade
+- `deployments`: Deployments de automações
+
+### 3. Configuração de Segurança
+
+Configure as políticas de segurança no Supabase:
+- Row Level Security (RLS)
+- Políticas de acesso por usuário
+- Auditoria de ações
+
+## 🎨 Design System
+
+O MILAPP utiliza um design system unificado com:
+- **Paleta de Cores**: Azul corporativo com tons neutros
+- **Tipografia**: Inter para interface moderna
+- **Componentes**: Material-UI com customizações
+- **Responsividade**: Mobile-first design
+- **Acessibilidade**: WCAG 2.1 AA compliance
+
+## 🔐 Segurança
+
+### Autenticação
+- **Azure AD**: Integração SSO corporativa
+- **JWT Tokens**: Autenticação stateless
+- **MFA**: Autenticação multifator
+- **RBAC**: Controle de acesso baseado em roles
+
+### Dados
+- **Criptografia**: AES-256 para dados sensíveis
+- **Auditoria**: Log completo de ações
+- **Backup**: Backup automático diário
+- **Compliance**: GDPR, LGPD, SOX
+
+## 📈 Monitoramento
+
+### Métricas
+- **Performance**: Tempo de resposta, throughput
+- **Negócio**: ROI, produtividade, qualidade
+- **Técnico**: Uptime, erros, recursos
+- **Usuário**: Engajamento, satisfação
+
+### Alertas
+- **Críticos**: Falhas de sistema, downtime
+- **Importantes**: Performance degradada
+- **Informativos**: Novos usuários, projetos
+
+## 🚀 Deploy
+
+### Desenvolvimento
+```bash
+docker-compose up --build
+```
+
+### Produção
+```bash
+# Usando Kubernetes
+kubectl apply -f k8s/
+
+# Usando Docker Swarm
+docker stack deploy -c docker-compose.prod.yml milapp
+```
+
+## 📚 Documentação
+
+- **API**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Guia do Usuário**: `/docs/user-guide/`
+- **Documentação Técnica**: `/docs/technical/`
+- **Troubleshooting**: `/docs/troubleshooting/`
 
 ## 🤝 Contribuição
 
-Para contribuir com o projeto:
-
-1. Fork o repositório
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
+1. Fork o projeto
+2. Crie uma branch para sua feature
+3. Commit suas mudanças
+4. Push para a branch
 5. Abra um Pull Request
 
-## 📞 Suporte
+## 📄 Licença
 
-Para suporte técnico ou dúvidas sobre o MILAPP, entre em contato com a equipe de desenvolvimento da MedSênior.
+Este projeto é proprietário e confidencial.
+
+## 🆘 Suporte
+
+- **Email**: suporte@milapp.com
+- **Documentação**: [docs.milapp.com](https://docs.milapp.com)
+- **Issues**: GitHub Issues
+
+---
+
+**MILAPP - Transformando a Gestão de Automação Corporativa** 
